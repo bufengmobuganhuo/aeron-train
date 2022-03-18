@@ -58,6 +58,7 @@ public class ArchiveHostAgent implements Agent
         this.controlChannelPort = controlChannelPort;
         this.recordingEventsPort = recordingEventsPort;
         this.idleStrategy = new SleepingMillisIdleStrategy();
+        // host是ArchiveHost的IP
         this.archivingMediaDriver = launchMediaDriver(host, controlChannelPort, recordingEventsPort);
         this.mutableDirectBuffer = new UnsafeBuffer(ByteBuffer.allocate(Long.BYTES));
         this.aeron = launchAeron(archivingMediaDriver);
@@ -81,7 +82,7 @@ public class ArchiveHostAgent implements Agent
         LOGGER.info("launching ArchivingMediaDriver");
         // control channel，必须绑定Host的IP地址
         final String controlChannel = AERON_UDP_ENDPOINT + host + ":" + controlChannelPort;
-        //
+        // recording event channel，必须绑定Host的IP地址
         final String recordingEventsChannel =
             "aeron:udp?control-mode=dynamic|control=" + host + ":" + recordingEventsPort;
 
@@ -94,6 +95,7 @@ public class ArchiveHostAgent implements Agent
             .threadingMode(ArchiveThreadingMode.SHARED);
 
         final var mediaDriverContext = new MediaDriver.Context()
+                // 告诉Media Driver监控模拟一个subscription链接，这允许stream可以在真正没有明确的subscription下发送消息
             .spiesSimulateConnection(true)
             .errorHandler(this::errorHandler)
             .threadingMode(ThreadingMode.SHARED)
@@ -150,13 +152,14 @@ public class ArchiveHostAgent implements Agent
         }
     }
 
+    // 开始recording
     private void createArchiveAndRecord()
     {
         Objects.requireNonNull(archivingMediaDriver);
         Objects.requireNonNull(aeron);
-
+        // 给Aeron Archive Client的request channel使用
         final var controlRequestChannel = AERON_UDP_ENDPOINT + host + ":" + controlChannelPort;
-        final var controlResponseChannel = AERON_UDP_ENDPOINT + host + ":0";
+        // 用于重播的channel
         final var recordingEventsChannel = "aeron:udp?control-mode=dynamic|control=" + host + ":" + recordingEventsPort;
 
         LOGGER.info("creating archive");
@@ -164,21 +167,21 @@ public class ArchiveHostAgent implements Agent
         archive = AeronArchive.connect(new AeronArchive.Context()
             .aeron(aeron)
             .controlRequestChannel(controlRequestChannel)
-            .controlResponseChannel(controlResponseChannel)
             .recordingEventsChannel(recordingEventsChannel)
             .idleStrategy(new SleepingMillisIdleStrategy()));
 
         LOGGER.info("creating publication");
-
+        // 一旦AeronArchive连接上，就会创建一个本地的publication，用于重播
         publication = aeron.addExclusivePublication("aeron:ipc", STREAM_ID);
 
         LOGGER.info("starting recording");
-
+        // 录制本地的ArchivingMediaDriver上的stream
         archive.startRecording("aeron:ipc", STREAM_ID, SourceLocation.LOCAL);
 
         LOGGER.info("waiting for recording to start for session {}", publication.sessionId());
         final var counters = aeron.countersReader();
         int counterId = RecordingPos.findCounterIdBySession(counters, publication.sessionId());
+        // 上述startRecording()是一个异步的方法，需要等待它准备好
         while (CountersReader.NULL_COUNTER_ID == counterId)
         {
             idleStrategy.idle();
@@ -187,6 +190,7 @@ public class ArchiveHostAgent implements Agent
         final long recordingId = RecordingPos.getRecordingId(counters, counterId);
 
         final var activityListener = new ArchiveActivityListener();
+        // 为给定的subscription（用于接收）构建了一个适配器，用于记录event
         recordingSignalAdapter = new RecordingSignalAdapter(archive.controlSessionId(), activityListener,
             activityListener, archive.controlResponsePoller().subscription(), 10);
 

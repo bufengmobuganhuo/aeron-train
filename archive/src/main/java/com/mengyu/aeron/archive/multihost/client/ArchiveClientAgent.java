@@ -81,6 +81,7 @@ public class ArchiveClientAgent implements Agent
     private void connectToArchive()
     {
         //start an asyncConnect if one not in progress
+        // 用于异步地连接ArchivingMediaDriver
         if (asyncConnect == null)
         {
             LOGGER.info("connecting aeron archive");
@@ -107,22 +108,26 @@ public class ArchiveClientAgent implements Agent
             } else
             {
                 LOGGER.info("finding remote recording");
-                //archive is connected. find the recording on the remote archive host
+                //archive 已连接， 从远程archive host上查找recordingId
                 final var recordingId = getRecordingId("aeron:ipc", RECORDED_STREAM_ID);
                 if (recordingId != Long.MIN_VALUE)
                 {
-                    //ask aeron to assign an ephemeral port for this replay
+                    //ask aeron to assign an ephemeral（短暂的） port for this replay
                     final var localReplayChannelEphemeral = AERON_UDP_ENDPOINT + thisHost + ":0";
                     //construct a local subscription for the remote host to replay to
+                    // 构建一个本地的subscription，用于将远程的内容重播到这里
                     replayDestinationSubs = aeron.addSubscription(localReplayChannelEphemeral, REPLAY_STREAM_ID);
                     //resolve the actual port and use that for the replay
+                    // 解析出实际的端口，并用于重播
                     final var actualReplayChannel = replayDestinationSubs.tryResolveChannelEndpointPort();
                     LOGGER.info("actualReplayChannel={}", actualReplayChannel);
                     //replay from the archive recording the start
+                    //从头开始重播
                     long replaySession =
                         archive.startReplay(recordingId, 0L, Long.MAX_VALUE, actualReplayChannel, REPLAY_STREAM_ID);
                     LOGGER.info("ready to poll subscription, replaying to {}, image is {}", actualReplayChannel,
                         (int) replaySession);
+                    // 修改状态机
                     currentState = State.POLLING_SUBSCRIPTION;
                 } else
                 {
@@ -146,6 +151,7 @@ public class ArchiveClientAgent implements Agent
         final var fromRecordingId = 0L;
         final var recordCount = 100;
 
+        // 从给定URI上列出所有recordings
         final int foundCount = archive.listRecordingsForUri(fromRecordingId, recordCount, remoteRecordedChannel,
             remoteRecordedStream, consumer);
 
