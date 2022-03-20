@@ -12,6 +12,9 @@
         <module>agrona</module>
         <module>aeron</module>
         <module>archive</module>
+        <module>archive-replication</module>
+        <module>archive-host</module>
+        <module>archive-client</module>
     </modules>
 
     <properties>
